@@ -1,48 +1,15 @@
 pipeline {
-    agent any
-
-    environment {
-        // Define environment variables here
-        APP_NAME = 'Spring-Boot-Test-Api'
-        VERSION = '1.0.0'
-        DOCKER_IMAGE = "${env.APP_NAME}:${env.BUILD_NUMBER}"
-        DOCKER_TAG = "latest"
+  agent any
+  tools { maven 'Maven' }
+  stages {
+    stage('Checkout') {
+      steps { git 'https://github.com/your/repo.git' }
     }
-
-    stages {
-            stage('Checkout') {
-                steps {
-                    git branch: 'master', url: 'https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git', credentialsId: 'github-creds'
-                }
-            }
-
-            stage('Build with Maven') {
-                steps {
-                    sh 'mvn clean package -DskipTests'
-                }
-            }
-
-            stage('Build Docker Image') {
-                steps {
-                    sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-                }
-            }
-
-            stage('Deploy to Docker') {
-                steps {
-                    sh "docker rm -f springboot-app || true"
-                    sh "docker run -d --name springboot-app -p 8050:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                }
-            }
-        }
-
-        post {
-            success {
-                echo "Spring Boot app deployed successfully in Docker!"
-            }
-            failure {
-                echo "Build or deployment failed."
-            }
-        }
-
+    stage('Build') {
+      steps { sh 'mvn clean install' }
+    }
+    stage('Test') {
+      steps { sh 'mvn test' }
+    }
+  }
 }
