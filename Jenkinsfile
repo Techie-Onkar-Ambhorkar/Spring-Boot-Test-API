@@ -44,7 +44,7 @@ pipeline {
                     // Stop old container if running
                     sh "docker rm -f springboot || true"
                     // Run new container
-                    sh "docker run -d --name springboot -p 8080:8080 $DOCKER_IMAGE"
+                    sh "docker run -d --name springboot -p 8050:8080 $DOCKER_IMAGE"
                 }
             }
         }
