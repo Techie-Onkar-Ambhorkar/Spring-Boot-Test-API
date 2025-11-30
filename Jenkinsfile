@@ -1,6 +1,9 @@
 pipeline {
     agent any
-    
+    tools {
+        maven 'Maven-3.9.9'
+    }
+
     environment {
         // Define environment variables here
         APP_NAME = 'Spring-Boot-Test-Api'
