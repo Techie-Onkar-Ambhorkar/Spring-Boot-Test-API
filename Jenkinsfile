@@ -10,93 +10,39 @@ pipeline {
     }
 
     stages {
-        stages {
             stage('Checkout') {
                 steps {
-                    git branch: 'master', url: 'https://github.com/onkyarity/spring-boot-test-api.git'
+                    git branch: 'main', url: 'https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git'
                 }
             }
 
-            /* stage('Build') {
+            stage('Build with Maven') {
                 steps {
-                    // Build the application using Maven wrapper
-                    sh './mvnw clean package -DskipTests'
+                    sh 'mvn clean package -DskipTests'
                 }
+            }
 
-                post {
-                    success {
-                        echo 'Build successful!'
-                    }
-                    failure {
-                        echo 'Build failed!'
-                    }
-                }
-            } */
-
-            /* stage('Test') {
+            stage('Build Docker Image') {
                 steps {
-                    // Run tests
-                    sh './mvnw test'
-
-                    // Archive test results
-                    junit '**//* target/surefire-reports *//** /* *//*.xml'
+                    sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
                 }
-            } */
+            }
 
-            /* stage('Static Code Analysis') {
+            stage('Deploy to Docker') {
                 steps {
-                    // Run static code analysis (e.g., Checkstyle, PMD, SpotBugs)
-                    sh './mvnw checkstyle:check pmd:pmd spotbugs:check'
-
-                    // Archive reports
-                    archiveArtifacts '**//* target *//*.xml,**//* target *//*.txt'
+                    sh "docker rm -f springboot-app || true"
+                    sh "docker run -d --name springboot-app -p 8050:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 }
-            } */
-
-            /* stage('Docker Build') {
-                when {
-                    // Only build Docker image for main branch
-                    branch 'main' or branch 'master'
-                }
-                steps {
-                    script {
-                        // Build Docker image
-                        docker.build("${env.DOCKER_IMAGE}")
-                    }
-                }
-            } */
+            }
         }
 
-        /* post {
-            always {
-                // Clean up workspace after build
-                cleanWs()
-            }
+        post {
             success {
-                echo 'Pipeline completed successfully!'
+                echo "Spring Boot app deployed successfully in Docker!"
             }
             failure {
-                echo 'Pipeline failed!'
-            }
-        } */
-
-        stage('Build with Maven') {
-            steps {
-                sh 'mvn clean package -DskipTests'
+                echo "Build or deployment failed."
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                        sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-            }
-        }
-
-        stage('Deploy to Docker') {
-            steps {
-                sh "docker rm -f springboot-app || true"
-                sh "docker run -d --name springboot-app -p 8050:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
-            }
-        }
-    }
 }
