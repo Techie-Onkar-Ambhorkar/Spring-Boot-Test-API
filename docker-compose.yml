@@ -5,4 +5,4 @@ services:
     build: .
     container_name: spring-boot-test-api
     ports:
-      - "8050:9090"
+      - "8050:8080"
