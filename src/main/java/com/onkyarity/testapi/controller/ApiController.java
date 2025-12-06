@@ -10,7 +10,7 @@ public class ApiController {
 
   @GetMapping("/")
   public String index() {
-    return "Hello World";
+    return "Hello Onkyarity";
   }
 
 }
