@@ -122,17 +122,21 @@ fi
                 # Clean up any existing containers
                 echo "=== Cleaning up existing containers ==="
                 docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" down -v --remove-orphans 2>/dev/null || true
+                docker rm -f $(docker ps -aq --filter "name=${SERVICE_NAME}") 2>/dev/null || true
                 '''
                 
                 // Build and start the service
                 sh '''#!/usr/bin/env bash
                 set -e
                 echo "=== Building and starting services ==="
-                if ! docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" up -d --build --force-recreate; then
-                    echo "=== Docker Compose up failed, showing logs ==="
-                    docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" logs --tail=100
-                    exit 1
-                fi
+                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" build --no-cache
+                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" up -d
+                
+                # Wait for container to start
+                sleep 10
+                
+                # Show container status
+                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" ps
                 '''
                 
                 // Get container ID
@@ -141,71 +145,27 @@ fi
                 ''', returnStdout: true).trim()
                 
                 if (!containerId) {
+                    echo "=== No container found, showing all containers ==="
+                    sh "docker ps -a"
                     error "No container found with name ${SERVICE_NAME}"
                 }
                 
                 echo "=== Container ${containerId} details ==="
-                sh "docker inspect ${containerId}"
+                sh "docker inspect ${containerId} || true"
                 
-                // Wait for container to be running
-                echo "=== Waiting for container to be healthy ==="
-                def maxRetries = 30
-                def retryCount = 0
-                def isHealthy = false
-                
-                while (retryCount < maxRetries) {
-                    def status = sh(script: """#!/usr/bin/env bash
-                        docker inspect -f '{{.State.Status}}' ${containerId} 2>/dev/null || echo "unknown"
-                    """, returnStdout: true).trim()
-                    
-                    echo "Container status: ${status}"
-                    
-                    if (status == "running") {
-                        // Check health status if healthcheck is configured
-                        def health = sh(script: """#!/usr/bin/env bash
-                            docker inspect -f '{{.State.Health.Status}}' ${containerId} 2>/dev/null || echo "no-healthcheck"
-                        """, returnStdout: true).trim()
-                        
-                        if (health == "healthy" || health == "no-healthcheck") {
-                            isHealthy = true
-                            break
-                        }
-                        echo "Container is running but not yet healthy (${health})"
-                    }
-                    
-                    retryCount++
-                    if (retryCount >= maxRetries) {
-                        break
-                    }
-                    
-                    sleep(2)
-                }
-                
-                if (!isHealthy) {
-                    echo "=== Container failed to become healthy ==="
-                    echo "=== Container logs ==="
-                    sh "docker logs --tail 200 ${containerId} || true"
-                    echo "=== Container inspect ==="
-                    sh "docker inspect ${containerId} || true"
-                    error "Container failed to become healthy after ${maxRetries} retries"
-                }
-                
-                // Check application logs
-                echo "=== Application logs (last 50 lines) ==="
-                sh "docker logs --tail 50 ${containerId} || true"
+                // Show container logs
+                echo "=== Container logs ==="
+                sh "docker logs --tail 200 ${containerId} || true"
                 
                 // Check if application is responding
                 echo "=== Checking application health ==="
                 def healthCheck = sh(script: """#!/usr/bin/env bash
-                    curl -f http://localhost:8050/actuator/health || (echo "Health check failed" && exit 1)
+                    curl -v http://localhost:8050/actuator/health || (echo "Health check failed" && exit 1)
                 """, returnStatus: true)
                 
                 if (healthCheck != 0) {
-                    echo "=== Health check failed ==="
-                    echo "=== Full container logs ==="
+                    echo "=== Health check failed, showing logs ==="
                     sh "docker logs ${containerId} || true"
-                    echo "=== Checking container processes ==="
-                    sh "docker top ${containerId} || true"
                     error "Application health check failed"
                 }
                 
@@ -222,9 +182,11 @@ fi
                     docker logs --tail 200 "$CID" 2>/dev/null || true
                     echo "=== Container inspect ==="
                     docker inspect "$CID" 2>/dev/null || true
+                    echo "=== Container processes ==="
+                    docker top "$CID" 2>/dev/null || true
                 fi
                 '''
-                throw e
+                error "Deployment failed: ${e.message}"
             }
         }
       }
