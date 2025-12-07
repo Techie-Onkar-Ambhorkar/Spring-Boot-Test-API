@@ -10,3 +10,4 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./heapdumps:/app/heapdumps
+    restart: unless-stopped
