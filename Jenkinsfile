@@ -49,7 +49,35 @@ pipeline {
       }
     }
 
-    stage('Pre-clean existing container') {
+    stage('Agent debug & validate') {
+      steps {
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+echo "=== Agent user and shell ==="
+whoami || true
+echo "SHELL=${SHELL:-unknown}"
+
+echo "=== Docker version/info ==="
+docker version || true
+docker info || true
+
+echo "=== Workspace files (top) ==="
+ls -la || true
+echo "=== Compose file check ==="
+if [ ! -f "${COMPOSE_FILE}" ]; then
+  echo "ERROR: Compose file ${COMPOSE_FILE} not found"
+  exit 2
+fi
+echo "=== Compose config ==="
+docker compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} config || true
+
+echo "=== Images (recent) ==="
+docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}" | head -n 50 || true
+'''
+      }
+    }
+
+    stage('Pre-clean existing container (preserve for diagnostics)') {
       steps {
         script {
           sh '''#!/usr/bin/env bash
@@ -57,8 +85,8 @@ set -euo pipefail
 NAME="${SERVICE_NAME}"
 EXISTING_ID=$(docker ps -a --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
 if [ -n "$EXISTING_ID" ]; then
-  echo "Found existing container $NAME -> $EXISTING_ID. Stopping and removing..."
-  docker rm -f "$EXISTING_ID" || true
+  echo "Found existing container $NAME -> $EXISTING_ID. Stopping (preserve for logs)..."
+  docker stop "$EXISTING_ID" || true
 else
   echo "No existing container named $NAME"
 fi
@@ -72,19 +100,54 @@ fi
         script {
           sh '''#!/usr/bin/env bash
 set -euo pipefail
+
+# ensure compose file exists
 if [ ! -f "${COMPOSE_FILE}" ]; then
   echo "Compose file ${COMPOSE_FILE} not found"
   exit 2
 fi
 
+# bring down any leftover resources for this project (ignore errors)
 docker compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} down --remove-orphans || true
+
+# start services (rebuild image if needed)
 docker compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} up -d --build --force-recreate --remove-orphans
 '''
         }
       }
     }
 
-    stage('Verify deployment') {
+    stage('Post-deploy quick check') {
+      steps {
+        script {
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+NAME="${SERVICE_NAME}"
+# show container list for this service
+docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}" || true
+
+CID=$(docker ps -a --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
+if [ -z "$CID" ]; then
+  echo "No container found for ${NAME} after compose up"
+  exit 1
+fi
+
+STATUS=$(docker inspect --format='{{.State.Status}}' "$CID" || true)
+echo "Container $CID status: $STATUS"
+if [ "$STATUS" != "running" ]; then
+  echo "Container not running — printing last 500 lines of logs"
+  docker logs --tail 500 "$CID" || true
+  docker inspect "$CID" --format '{{json .State}}' || true
+  exit 1
+fi
+
+echo "Container appears to be running: $CID"
+'''
+        }
+      }
+    }
+
+    stage('Verify deployment (health or HTTP probe)') {
       steps {
         script {
           sh '''#!/usr/bin/env bash
@@ -93,16 +156,15 @@ NAME="${SERVICE_NAME}"
 TIMEOUT=${HEALTH_TIMEOUT}
 START=$(date +%s)
 
-CONTAINER_ID=$(docker ps --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
-if [ -z "$CONTAINER_ID" ]; then
-  echo "ERROR: container ${NAME} not found after compose up"
-  docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}"
+CID=$(docker ps --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
+if [ -z "$CID" ]; then
+  echo "ERROR: container ${NAME} not found for health check"
   exit 1
 fi
 
-echo "Waiting for container $NAME ($CONTAINER_ID) to become healthy (timeout ${TIMEOUT}s)..."
+echo "Waiting for container $NAME ($CID) to become healthy (timeout ${TIMEOUT}s)..."
 while true; do
-  HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CONTAINER_ID" || true)
+  HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CID" || true)
   if [ -n "$HEALTH" ]; then
     echo "Health status: $HEALTH"
     if [ "$HEALTH" = "healthy" ]; then
@@ -123,8 +185,9 @@ while true; do
     echo "Timed out waiting for healthy container"
     echo "=== Container status ==="
     docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}"
-    echo "=== Recent logs (tail 200) ==="
-    docker logs --tail 200 "$CONTAINER_ID" || true
+    echo "=== Recent logs (tail 500) ==="
+    docker logs --tail 500 "$CID" || true
+    docker inspect "$CID" --format '{{json .State}}' || true
     exit 1
   fi
   sleep 3
@@ -148,7 +211,9 @@ docker ps -a --filter "name=^/${SERVICE_NAME}$" --format "table {{.ID}}\t{{.Stat
 ID=$(docker ps -a --filter "name=^/${SERVICE_NAME}$" --format '{{.ID}}' || true)
 if [ -n "$ID" ]; then
   echo "=== Logs for $ID ==="
-  docker logs --tail 500 "$ID" || true
+  docker logs --tail 1000 "$ID" || true
+  echo "=== Inspect state ==="
+  docker inspect "$ID" --format '{{json .State}}' || true
 fi
 '''
       }
