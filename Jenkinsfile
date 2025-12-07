@@ -39,26 +39,47 @@ pipeline {
             }
         }
 
-        stage('Build with Maven') {
-            agent {
-                label 'Maven'  // Make sure you have a node with Maven installed and labeled 'maven'
+        stage('Install Maven') {
+            steps {
+                script {
+                    // Install Maven if not already installed
+                    sh '''
+                        if ! command -v mvn &> /dev/null; then
+                            echo "Maven not found, installing..."
+                            apt-get update && apt-get install -y maven
+                        fi
+                        mvn -v
+                    '''
+                }
             }
+        }
+
+        stage('Build with Maven') {
             steps {
                 sh "mvn clean package -DskipTests"
-                stash includes: 'target/*.jar', name: 'app'  // Stash the built JAR
             }
         }
 
         stage('Build and Deploy Docker') {
-            agent {
-                label 'docker'  // Make sure you have a node with Docker installed and labeled 'docker'
-            }
             steps {
-                unstash 'app'  // Unstash the built JAR
                 script {
                     // Create necessary directories
                     sh 'mkdir -p logs heapdumps'
                     sh 'chmod -R 777 logs/ heapdumps/ || true'
+
+                    // Install Docker if not already installed
+                    sh '''
+                        if ! command -v docker &> /dev/null; then
+                            echo "Docker not found, installing..."
+                            apt-get update
+                            apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+                            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+                            add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+                            apt-get update
+                            apt-get install -y docker-ce docker-ce-cli containerd.io
+                        fi
+                        docker --version
+                    '''
 
                     // Build with the active profile if set
                     def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
@@ -71,7 +92,7 @@ pipeline {
                     sleep 30
 
                     // Verify container is running
-                    def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+                    def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStatus: true, returnStdout: true).trim()
                     if (!containerId) {
                         error "${SERVICE_NAME} container is not running"
                     }
