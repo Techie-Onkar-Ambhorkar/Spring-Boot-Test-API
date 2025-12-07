@@ -6,6 +6,7 @@ x-project-name: "learnings"
 services:
   spring-boot-test-api:  # Keep the original service name
     build: .
+    image: spring-boot-test-api
     container_name: spring-boot-test-api  # Keep the original container name
     labels:
       - com.docker.compose.project=learnings

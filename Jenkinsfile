@@ -77,7 +77,7 @@ pipeline {
                 script {
                     try {
                         // Get current running container (if any)
-                        OLD_CONTAINER = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+                        OLD_CONTAINER = sh(script: "docker ps -q --filter 'name=learnings: ${SERVICE_NAME}'", returnStdout: true).trim()
 
                         echo "=== Starting deployment of new container ==="
 
@@ -89,22 +89,22 @@ pipeline {
 
                         // Stop and remove any existing containers
                         sh """
-                            docker-compose -f ${COMPOSE_FILE} down || true
+                            docker-compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} down || true
                             docker rm -f ${SERVICE_NAME} 2>/dev/null || true
                         """
 
                         // Build the new Docker image
                         def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
-                        sh "docker-compose -f ${COMPOSE_FILE} build --no-cache ${buildArgs}"
+                        sh "docker-compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} build --no-cache ${buildArgs}"
 
                         // Start the new container
                         sh """
-                            docker-compose -f ${COMPOSE_FILE} up -d
+                            docker-compose -p ${COMPOSE_PROJECT} -f ${COMPOSE_FILE} up -d
                             sleep 10
                         """
 
                         // Get new container ID
-                        NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+                        NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=learnings:${SERVICE_NAME}'", returnStdout: true).trim()
                         if (!NEW_CONTAINER) {
                             error "New container failed to start"
                         }
