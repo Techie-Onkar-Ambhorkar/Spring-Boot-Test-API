@@ -12,7 +12,6 @@ pipeline {
     COMPOSE_FILE    = "docker-compose.yml"
     COMPOSE_PROJECT = "spring-boot-test"
     APP_PORT        = "8080"
-    DOCKER_REGISTRY = "" // Add your Docker registry URL if needed
   }
 
   stages {
@@ -33,26 +32,20 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         script {
-          // Get Docker server and credentials
-          docker.withRegistry(env.DOCKER_REGISTRY ?: '', 'docker-hub-credentials') {
-            // Build the Docker image using Docker Pipeline
-            def customImage = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-            
-            // Optionally push the image to a registry
-            // customImage.push()
-          }
+          // Build the Docker image directly using shell commands
+          sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+
+          // Optionally tag and push the image to a registry
+          // sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} your-registry/${DOCKER_IMAGE}:${DOCKER_TAG}"
+          // withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          //   sh 'echo \"$DOCKER_PASS\" | docker login -u \"$DOCKER_USER\" --password-stdin'
+          //   sh "docker push your-registry/${DOCKER_IMAGE}:${DOCKER_TAG}"
+          // }
         }
       }
     }
 
     stage('Deploy with Docker Compose') {
-      agent {
-        docker {
-          image 'docker/compose:latest'
-          args '-v /var/run/docker.sock:/var/run/docker.sock'
-          reuseNode true
-        }
-      }
       steps {
         script {
           try {
@@ -99,19 +92,8 @@ pipeline {
 
   post {
     always {
-      // Clean up any running containers
-      sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
-
       // Clean up workspace
       cleanWs()
-    }
-
-    success {
-      echo 'Pipeline completed successfully!'
-    }
-
-    failure {
-      echo 'Pipeline failed. Check the logs for details.'
     }
   }
 }
