@@ -12,6 +12,7 @@ pipeline {
     COMPOSE_FILE    = "docker-compose.yml"
     COMPOSE_PROJECT = "spring-boot-test"
     APP_PORT        = "8080"
+    DOCKER_REGISTRY = "" // Add your Docker registry URL if needed
   }
 
   stages {
@@ -32,16 +33,26 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         script {
-          // Build the Docker image using shell commands
-          sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-
-          // Verify the image was built
-          sh "docker images | grep ${DOCKER_IMAGE}"
+          // Get Docker server and credentials
+          docker.withRegistry(env.DOCKER_REGISTRY ?: '', 'docker-hub-credentials') {
+            // Build the Docker image using Docker Pipeline
+            def customImage = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+            
+            // Optionally push the image to a registry
+            // customImage.push()
+          }
         }
       }
     }
 
     stage('Deploy with Docker Compose') {
+      agent {
+        docker {
+          image 'docker/compose:latest'
+          args '-v /var/run/docker.sock:/var/run/docker.sock'
+          reuseNode true
+        }
+      }
       steps {
         script {
           try {
