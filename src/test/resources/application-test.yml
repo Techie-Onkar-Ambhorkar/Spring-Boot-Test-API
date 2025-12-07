@@ -1,0 +1,6 @@
+logging:
+  file:
+    name: target/logs/test-application.log
+  level:
+    root: INFO
+    org.springframework: WARN
