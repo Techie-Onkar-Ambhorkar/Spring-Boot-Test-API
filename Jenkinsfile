@@ -114,7 +114,7 @@ pipeline {
 
                         // Health check
                         def healthCheck = sh(
-                            script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/learnings/actuator/health || echo '503'",
+                            script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
                             returnStdout: true
                         ).trim()
 
@@ -134,7 +134,7 @@ pipeline {
                         }
 
                         DEPLOYMENT_SUCCESS = "true"
-                        echo "Deployment successful! Application is available at: http://localhost:${APP_PORT}/learnings"
+                        echo "Deployment successful! Application is available at: http://localhost:${APP_PORT}"
 
                     } catch (Exception e) {
                         error "Deployment failed: ${e.message}"
