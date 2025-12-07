@@ -6,7 +6,7 @@ pipeline {
         DOCKER_TAG = "latest"
         SERVICE_NAME = "spring-boot-test-api"
         COMPOSE_FILE = "docker-compose.yml"
-        COMPOSE_PROJECT = "spring-boot-test"
+        COMPOSE_PROJECT = "learnings"  // Changed to match x-project-name
         APP_PORT = "8050"
         GIT_URL = "https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git"
         GIT_BRANCH = "master"
@@ -87,6 +87,12 @@ pipeline {
                             chmod -R 777 logs/ heapdumps/ || true
                         """
 
+                        // Stop and remove any existing containers
+                        sh """
+                            docker-compose -f ${COMPOSE_FILE} down || true
+                            docker rm -f ${SERVICE_NAME} 2>/dev/null || true
+                        """
+
                         // Build the new Docker image
                         def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
                         sh "docker-compose -f ${COMPOSE_FILE} build --no-cache ${buildArgs}"
@@ -108,7 +114,7 @@ pipeline {
 
                         // Health check
                         def healthCheck = sh(
-                            script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
+                            script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/learnings/actuator/health || echo '503'",
                             returnStdout: true
                         ).trim()
 
@@ -119,8 +125,8 @@ pipeline {
                         // If we got here, the new container is healthy
                         echo "New container is healthy: ${NEW_CONTAINER}"
 
-                        // Only now, clean up the old container if it existed
-                        if (OLD_CONTAINER?.trim()) {
+                        // Clean up old container if it exists and new deployment is successful
+                        if (OLD_CONTAINER?.trim() && OLD_CONTAINER != NEW_CONTAINER) {
                             echo "Cleaning up old container: ${OLD_CONTAINER}"
                             sh "docker stop ${OLD_CONTAINER} || true"
                             sh "docker rm -f ${OLD_CONTAINER} || true"
@@ -128,7 +134,7 @@ pipeline {
                         }
 
                         DEPLOYMENT_SUCCESS = "true"
-                        echo "Deployment successful! Application is available at: http://localhost:${APP_PORT}"
+                        echo "Deployment successful! Application is available at: http://localhost:${APP_PORT}/learnings"
 
                     } catch (Exception e) {
                         error "Deployment failed: ${e.message}"
@@ -153,7 +159,7 @@ pipeline {
                     }
 
                     // Restart the old container if it existed
-                    if (OLD_CONTAINER?.trim()) {
+                    if (OLD_CONTAINER?.trim() && OLD_CONTAINER != NEW_CONTAINER) {
                         echo "Restoring previous container: ${OLD_CONTAINER}"
                         sh "docker start ${OLD_CONTAINER} || true"
                     }
