@@ -15,9 +15,28 @@ pipeline {
   }
 
   stages {
+    stage('Cleanup Workspace') {
+      steps {
+        script {
+          // Stop and remove any running containers from previous builds
+          sh '''
+            # Stop and remove any running containers
+            docker-compose -f docker-compose.yml down -v --remove-orphans || true
+
+            # Remove any dangling containers, networks, and volumes
+            docker system prune -f || true
+            docker volume prune -f || true
+
+            # Clean up workspace
+            find . -mindepth 1 -delete || true
+          '''
+        }
+      }
+    }
+
     stage('Checkout') {
       steps {
-        cleanWs()
+        // Checkout the code
         git branch: 'main',
             url: 'https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git',
             credentialsId: 'github-creds'
@@ -34,17 +53,9 @@ pipeline {
       steps {
         script {
           try {
-            // Install Docker Compose if not already installed
-            sh '''
-              if ! command -v docker-compose &> /dev/null; then
-                echo "Installing Docker Compose..."
-                sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-                sudo chmod +x /usr/local/bin/docker-compose
-              fi
-            '''
-
-            // Stop and remove any existing containers
-            sh 'docker-compose -f docker-compose.yml down -v --remove-orphans || true'
+            // Create necessary directories with proper permissions
+            sh 'mkdir -p logs heapdumps'
+            sh 'chmod -R 777 logs/ heapdumps/ || true'
 
             // Build and start the application
             sh 'docker-compose -f docker-compose.yml up -d --build'
@@ -72,9 +83,6 @@ pipeline {
             sh 'docker ps -a || true'
             sh 'docker-compose -f docker-compose.yml logs --tail=100 || true'
             error "Deployment failed: ${e.message}"
-          } finally {
-            // Clean up Docker resources
-            sh 'docker-compose -f docker-compose.yml down -v --remove-orphans || true'
           }
         }
       }
@@ -83,7 +91,12 @@ pipeline {
 
   post {
     always {
-      cleanWs()
+      script {
+        // Clean up Docker resources
+        sh 'docker-compose -f docker-compose.yml down -v --remove-orphans || true'
+        sh 'docker system prune -f || true'
+        sh 'docker volume prune -f || true'
+      }
     }
   }
 }
