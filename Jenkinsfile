@@ -10,14 +10,13 @@ pipeline {
         APP_PORT = "8080"
         GIT_URL = "https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git"
         GIT_BRANCH = "master"
-        ACTIVE_PROFILE = ""  // Set the default active profile
+        ACTIVE_PROFILE = ""  // Empty string for default profile
     }
 
     stages {
         stage('Cleanup Before Build') {
             steps {
                 script {
-                    // Clean up any existing containers
                     sh '''
                         docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true
                         docker system prune -f || true
@@ -43,8 +42,7 @@ pipeline {
         stage('Build with Maven') {
             steps {
                 script {
-                    // Build with the specified profile and skip tests
-                    sh "mvn clean package -Dspring.profiles.active=${ACTIVE_PROFILE} -DskipTests"
+                    sh "mvn clean package -DskipTests"
                 }
             }
         }
@@ -56,8 +54,11 @@ pipeline {
                     sh 'mkdir -p logs heapdumps'
                     sh 'chmod -R 777 logs/ heapdumps/ || true'
 
-                    // Build and start the application with the specified profile
-                    sh "docker-compose -f ${COMPOSE_FILE} build --build-arg ACTIVE_PROFILE=${ACTIVE_PROFILE}"
+                    // Build with the active profile if set
+                    def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
+
+                    // Build and start the application
+                    sh "docker-compose -f ${COMPOSE_FILE} build ${buildArgs}"
                     sh "docker-compose -f ${COMPOSE_FILE} up -d"
 
                     // Wait for the application to start
