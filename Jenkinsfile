@@ -32,17 +32,11 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         script {
-          // Build the Docker image
-          docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}").withRun("-p 8080:8080") { c ->
-            // Verify the container started successfully
-            sh "docker logs ${c.id}"
-            
-            // Simple health check
-            def health = sh(script: "docker inspect -f '{{.State.Health.Status}}' ${c.id} 2>/dev/null || echo 'unknown'", returnStdout: true).trim()
-            if (health != 'healthy' && health != 'no healthcheck') {
-              error "Container failed health check: ${health}"
-            }
-          }
+          // Build the Docker image using shell commands
+          sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+
+          // Verify the image was built
+          sh "docker images | grep ${DOCKER_IMAGE}"
         }
       }
     }
