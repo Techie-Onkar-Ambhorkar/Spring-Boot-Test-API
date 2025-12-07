@@ -26,7 +26,7 @@ HEALTHCHECK --interval=15s --timeout=15s --start-period=45s --retries=5 \
   CMD curl -f http://localhost:8080/actuator/health || (echo "Health check failed" && exit 1)
 
 # Run the application with debug and memory options
-ENTRYPOINT ["sh", "-c", "\
+ENTRYPOINT ["sh", "-c", " \
     echo '=== Starting Application ===' && \
     echo 'Java version:' && java -version && \
     echo 'Environment:' && env && \
@@ -45,5 +45,4 @@ ENTRYPOINT ["sh", "-c", "\
     -jar app.jar \
     --debug \
     --spring.config.location=classpath:/application.yaml,file:/app/config/application.yaml \
-    2>&1 | tee -a /app/logs/console.log
-"
+    2>&1 | tee -a /app/logs/console.log"
