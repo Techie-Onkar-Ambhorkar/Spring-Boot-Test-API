@@ -6,12 +6,12 @@ pipeline {
   }
 
   environment {
-    DOCKER_IMAGE   = "spring-boot-test-api:latest"
-    SERVICE_NAME   = "spring-boot-test-api"
-    COMPOSE_FILE   = "domains/learnings/docker-compose.yml"
-    COMPOSE_PROJECT= "learnings"
-    APP_PORT       = "8080"
-    HEALTH_TIMEOUT = "120"
+    DOCKER_IMAGE    = "spring-boot-test-api"
+    DOCKER_TAG      = "latest"
+    SERVICE_NAME    = "spring-boot-test-api"
+    COMPOSE_FILE    = "docker-compose.yml"
+    COMPOSE_PROJECT = "spring-boot-test"
+    APP_PORT        = "8080"
   }
 
   stages {
@@ -23,151 +23,26 @@ pipeline {
       }
     }
 
-    stage('Agent debug & validate') {
+    stage('Build & Test') {
       steps {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
-echo "=== Agent user and shell ==="
-whoami || true
-echo "SHELL=${SHELL:-unknown}"
-echo "WORKSPACE=${WORKSPACE:-unknown}"
-echo "PWD=$(pwd)"
-
-echo "=== Docker version/info ==="
-docker version || true
-docker info || true
-
-echo "=== Workspace top-level files ==="
-ls -la || true
-
-COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
-echo "Looking for compose file at: ${COMPOSE_ABS}"
-if [ -f "${COMPOSE_ABS}" ]; then
-  echo "=== Compose config (expanded) ==="
-  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" config || true
-else
-  echo "WARNING: Compose file ${COMPOSE_ABS} not found. Skipping compose validation."
-fi
-
-echo "=== Images (recent) ==="
-docker images | head -n 50 || true
-'''
-      }
-    }
-
-    stage('Build with Maven') {
-      steps {
-        sh 'mvn clean install -DskipTests=false'
-      }
-    }
-
-    stage('Test') {
-      steps {
-        sh 'mvn test'
-      }
-    }
-
-    stage('Build JAR') {
-      steps {
-        sh 'mvn clean package -DskipTests'
+        sh 'mvn clean package'
       }
     }
 
     stage('Build Docker Image') {
       steps {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
-echo "=== Docker build start ==="
-if ! docker build -t "${DOCKER_IMAGE}" . 2>&1 | tee docker-build.log; then
-  echo "ERROR: docker build failed. Last 200 lines of build log:"
-  tail -n 200 docker-build.log || true
-  exit 1
-fi
-echo "=== Docker build completed ==="
-'''
-      }
-    }
-
-    stage('Pre-clean existing container (stop, preserve logs)') {
-      steps {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
-NAME="${SERVICE_NAME}"
-EXISTING_ID=$(docker ps -a --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
-if [ -n "$EXISTING_ID" ]; then
-  echo "Found existing container $NAME -> $EXISTING_ID. Stopping (preserve for logs)..."
-  docker stop "$EXISTING_ID" || true
-else
-  echo "No existing container named $NAME"
-fi
-'''
-      }
-    }
-
-    stage('Deploy with Docker Compose') {
-      steps {
         script {
-            try {
-                // Clean up any existing containers
-                sh '''#!/usr/bin/env bash
-                set -x
-                echo "=== Starting deployment with Docker Compose ==="
-                echo "Current directory: $(pwd)"
-                echo "Docker Compose file: ${WORKSPACE}/${COMPOSE_FILE}"
-                
-                # List all files in the workspace
-                echo "=== Workspace contents ==="
-                find . -type f | sort
-                
-                # Clean up any existing containers
-                echo "=== Cleaning up existing containers ==="
-                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" down -v --remove-orphans 2>/dev/null || true
-                docker rm -f $(docker ps -aq --filter "name=${SERVICE_NAME}") 2>/dev/null || true
-                '''
-                
-                // Build and start the service
-                sh '''#!/usr/bin/env bash
-                set -e
-                echo "=== Building and starting services ==="
-                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" build --no-cache
-                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" up -d
-                
-                # Wait for container to start
-                sleep 10
-                
-                # Show container status
-                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" ps
-                '''
-                
-                // Get container ID
-                def containerId = sh(script: '''#!/usr/bin/env bash
-                    docker ps -q --filter "name=${SERVICE_NAME}"
-                ''', returnStdout: true).trim()
-                
-                if (!containerId) {
-                    echo "=== No container found, showing all containers ==="
-                    sh "docker ps -a"
-                    error "No container found with name ${SERVICE_NAME}"
-                }
-                
-                echo "=== Container ${containerId} details ==="
-                sh "docker inspect ${containerId} || true"
-                
-                // Show container logs
-                echo "=== Container logs ==="
-                sh "docker logs --tail 200 ${containerId} || true"
-                
-                // Check if application is responding
-                echo "=== Checking application health ==="
-                def healthCheck = sh(script: """#!/usr/bin/env bash
-                    curl -v http://localhost:8050/actuator/health || (echo "Health check failed" && exit 1)
-                """, returnStatus: true)
-                
-                if (healthCheck != 0) {
-                    echo "=== Health check failed, showing logs ==="
-                    sh "docker logs ${containerId} || true"
-                    error "Application health check failed"
-                }
+          // Build the Docker image
+          docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}").withRun("-p 8080:8080") { c ->
+            // Verify the container started successfully
+            sh "docker logs ${c.id}"
+            
+            // Simple health check
+            def health = sh(script: "docker inspect -f '{{.State.Health.Status}}' ${c.id} 2>/dev/null || echo 'unknown'", returnStdout: true).trim()
+            if (health != 'healthy' && health != 'no healthcheck') {
+              error "Container failed health check: ${health}"
+            }
+          }
                 
                 echo "=== Deployment successful ==="
                 
@@ -322,21 +197,67 @@ done
 '''
       }
     }
+
+    stage('Deploy with Docker Compose') {
+      steps {
+        script {
+          try {
+            // Stop and remove any existing containers
+            sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
+            
+            // Start the application
+            sh "docker-compose -f ${COMPOSE_FILE} up -d --build"
+            
+            // Wait for the application to start
+            sleep 10
+            
+            // Verify the container is running
+            def status = sh(script: "docker-compose -f ${COMPOSE_FILE} ps --services --filter 'status=running'", returnStdout: true).trim()
+            if (!status.contains(SERVICE_NAME)) {
+              error "${SERVICE_NAME} failed to start"
+            }
+            
+            // Check application health
+            def healthCheck = sh(
+              script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health",
+              returnStdout: true
+            ).trim()
+            
+            if (healthCheck != '200') {
+              error "Health check failed with status: ${healthCheck}"
+            }
+            
+            echo "Deployment successful! Application is running on http://localhost:${APP_PORT}"
+            
+          } catch (Exception e) {
+            // Get container logs if available
+            def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+            if (containerId) {
+              echo '=== Container Logs ==='
+              sh "docker logs ${containerId} --tail 100 || true"
+            }
+            error "Deployment failed: ${e.message}"
+          }
+        }
+      }
+    }
   }
 
   post {
-    success {
-      echo "✅ Build, Test, and Docker Compose deployment completed successfully!"
+    always {
+      // Clean up any running containers
+      sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
+      
+      // Clean up workspace
+      cleanWs()
     }
+    
+    success {
+      echo 'Pipeline completed successfully!'
+    }
+    
     failure {
-      script {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
-echo "Pipeline failed — printing docker info, images, compose config, and recent logs for ${SERVICE_NAME}"
-
-docker version || true
-docker info || true
-
+      echo 'Pipeline failed. Check the logs for details.'
 echo "=== Images (top 50) ==="
 docker images | head -n 50 || true
 
