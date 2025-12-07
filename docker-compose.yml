@@ -7,6 +7,9 @@ services:
   spring-boot-test-api:  # Keep the original service name
     build: .
     container_name: spring-boot-test-api  # Keep the original container name
+    labels:
+      - com.docker.compose.project=learnings
+      - com.docker.compose.service=spring-boot-test-api
     ports:
       - "8050:8080"
     environment:
