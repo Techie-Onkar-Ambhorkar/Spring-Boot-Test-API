@@ -1,5 +1,5 @@
 pipeline {
-  agent any  // This will use any available agent
+  agent any
 
   tools {
     maven 'Maven'
@@ -31,18 +31,17 @@ pipeline {
     }
 
     stage('Docker Build & Deploy') {
-      agent {
-        docker {
-          image 'docker:20.10.16-dind'  // Use Docker-in-Docker for container operations
-          args '-v /var/run/docker.sock:/var/run/docker.sock'  // Mount Docker socket
-          reuseNode true
-        }
-      }
       steps {
         script {
           try {
-            // Install docker-compose
-            sh 'apk add --no-cache docker-compose'
+            // Install Docker Compose if not already installed
+            sh '''
+              if ! command -v docker-compose &> /dev/null; then
+                echo "Installing Docker Compose..."
+                sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+                sudo chmod +x /usr/local/bin/docker-compose
+              fi
+            '''
 
             // Stop and remove any existing containers
             sh 'docker-compose -f docker-compose.yml down -v --remove-orphans || true'
