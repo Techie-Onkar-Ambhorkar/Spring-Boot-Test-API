@@ -245,3 +245,20 @@ echo "=== Container list for ${SERVICE_NAME} ==="
 docker ps -a --filter "name=^/${SERVICE_NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" || true
 
 ID=$(docker ps -a --filter "name=^/${SERVICE_NAME}$" --format '{{.ID}}' || true)
+if [ -n "$ID" ]; then
+  echo "=== Logs for $ID ==="
+  docker logs --tail 2000 "$ID" || true
+  echo "=== Inspect state ==="
+  docker inspect "$ID" --format '{{json .State}}' || true
+fi
+
+echo "=== Last lines of docker-build.log (if present) ==="
+if [ -f docker-build.log ]; then
+  tail -n 500 docker-build.log || true
+fi
+'''
+      }
+      echo "❌ Pipeline failed. Check logs for details."
+    }
+  }
+}
