@@ -1,13 +1,24 @@
 version: '3.8'
+
+# Add this section to set the project name
+x-project-name: "learnings"
+
 services:
-  spring-boot-test-api:
+  spring-boot-test-api:  # Keep the original service name
     build: .
-    container_name: spring-boot-test-api
+    container_name: spring-boot-test-api  # Keep the original container name
     ports:
       - "8050:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=${ACTIVE_PROFILE:-}
+      - SERVER_SERVLET_CONTEXT-PATH=/learnings
     volumes:
       - ./logs:/app/logs
       - ./heapdumps:/app/heapdumps
     restart: unless-stopped
+    networks:
+      - learnings-network
+
+networks:
+  learnings-network:
+    driver: bridge
