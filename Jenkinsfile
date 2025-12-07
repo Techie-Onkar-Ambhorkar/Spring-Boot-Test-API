@@ -12,34 +12,49 @@ pipeline {
     COMPOSE_FILE    = "docker-compose.yml"
     COMPOSE_PROJECT = "spring-boot-test"
     APP_PORT        = "8080"
+    GIT_URL         = "https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git"
+    GIT_BRANCH      = "master"
   }
 
   stages {
-    stage('Cleanup Workspace') {
+    stage('Checkout') {
       steps {
         script {
-          // Stop and remove any running containers from previous builds
-          sh '''
-            # Stop and remove any running containers
-            docker-compose -f docker-compose.yml down -v --remove-orphans || true
-
-            # Remove any dangling containers, networks, and volumes
-            docker system prune -f || true
-            docker volume prune -f || true
-
-            # Clean up workspace
-            find . -mindepth 1 -delete || true
-          '''
+          // Clean workspace first
+          cleanWs()
+          
+          // Checkout the code using checkout step for better control
+          checkout([
+            $class: 'GitSCM',
+            branches: [[name: "*/${GIT_BRANCH}"]],
+            extensions: [[$class: 'CleanCheckout']],
+            userRemoteConfigs: [[
+              url: GIT_URL,
+              credentialsId: ''  // Remove credentials for public repo
+            ]]
+          ])
+          
+          // Verify files were checked out
+          sh 'ls -la'
         }
       }
     }
 
-    stage('Checkout') {
+    stage('Cleanup Docker') {
       steps {
-        // Checkout the code
-        git branch: 'main',
-            url: 'https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git',
-            credentialsId: 'github-creds'
+        script {
+          // Stop and remove any running containers
+          sh '''
+            # Stop and remove any running containers
+            if [ -f docker-compose.yml ]; then
+              docker-compose -f docker-compose.yml down -v --remove-orphans || true
+            fi
+            
+            # Clean up Docker resources
+            docker system prune -f || true
+            docker volume prune -f || true
+          '''
+        }
       }
     }
 
