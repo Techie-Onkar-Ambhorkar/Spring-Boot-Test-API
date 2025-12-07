@@ -84,30 +84,36 @@ pipeline {
                     // Build with the active profile if set
                     def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
 
-                    // Build and start the application
+                    // Build the Docker image
                     sh "docker-compose -f ${COMPOSE_FILE} build ${buildArgs}"
+
+                    // Start the container in detached mode
                     sh "docker-compose -f ${COMPOSE_FILE} up -d"
 
-                    // Wait for the application to start
-                    sleep 30
+                    // Wait for the container to start
+                    sleep 10
 
                     // Verify container is running
                     def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
                     if (!containerId) {
-                        error "${SERVICE_NAME} container is not running"
+                        error "Container ${SERVICE_NAME} failed to start"
                     }
 
-                    // Check application health
+                    // Check container logs
+                    sh "docker logs ${SERVICE_NAME}"
+
+                    // Health check
                     def healthCheck = sh(
-                        script: "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health",
-                        returnStatus: true
-                    )
+                        script: "docker exec ${SERVICE_NAME} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
+                        returnStdout: true
+                    ).trim()
 
-                    if (healthCheck != 0) {
-                        error "Health check failed. Application did not start properly."
+                    if (healthCheck != "200") {
+                        error "Health check failed with status: ${healthCheck}"
                     }
 
-                    echo "Deployment successful! Application is running on http://localhost:${APP_PORT}"
+                    echo "Container ${SERVICE_NAME} is running and healthy"
+                    echo "Application is available at: http://localhost:${APP_PORT}"
                 }
             }
         }
@@ -118,10 +124,12 @@ pipeline {
             script {
                 // Clean up Docker resources
                 sh """
+                    echo "Cleaning up Docker resources..."
                     docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true
                     docker rm -f ${SERVICE_NAME} || true
                     docker system prune -f || true
                     docker volume prune -f || true
+                    echo "Cleanup complete"
                 """
             }
         }

@@ -1,23 +1,12 @@
 version: '3.8'
-
 services:
   spring-boot-test-api:
-    build:
-      context: .
-      args:
-        - ACTIVE_PROFILE=${ACTIVE_PROFILE:-}
-    image: spring-boot-test-api:latest
+    build: .
     container_name: spring-boot-test-api
     ports:
-      - "8080:8080"
+      - "8050:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=${ACTIVE_PROFILE:-prod}
+      - SPRING_PROFILES_ACTIVE=${ACTIVE_PROFILE:-}
     volumes:
       - ./logs:/app/logs
       - ./heapdumps:/app/heapdumps
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
