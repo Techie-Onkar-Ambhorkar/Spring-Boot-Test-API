@@ -9,12 +9,34 @@ services:
       - "8050:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-default}
-      - JAVA_OPTS=${JAVA_OPTS:-"-Xms256m -Xmx512m"}
+      - JAVA_OPTS=${JAVA_OPTS:-"-Xms256m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/heapdump.hprof -XX:+ShowCodeDetailsInExceptionMessages"}
+      - SPRING_OUTPUT_ANSI_ENABLED=ALWAYS
+      - SPRING_MAIN_SHOW_BANNER=true
+      - DEBUG=${DEBUG:-false}
+      - TZ=UTC
     volumes:
       - ./logs:/app/logs
+      - ./heapdumps:/app/heapdumps
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 6
-      start_period: 30s
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          memory: 512M

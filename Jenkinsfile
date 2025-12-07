@@ -145,27 +145,63 @@ set -euo pipefail
 NAME="${SERVICE_NAME}"
 
 echo "=== Containers matching ${NAME} ==="
-docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}" || true
+docker ps -a --filter "name=^/${NAME}" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" || true
 
-CID=$(docker ps -a --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
+# Give the container some time to start
+sleep 10
+
+# Get the container ID with more flexible matching
+CID=$(docker ps -a --filter "name=${NAME}" --format '{{.ID}}' | head -1 || true)
+
 if [ -z "$CID" ]; then
-  echo "No container found for ${NAME} after compose up"
-  echo "=== All containers (recent) ==="
-  docker ps -a --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" | head -n 200 || true
+  echo "ERROR: No container found matching ${NAME}"
+  echo "=== All containers ==="
+  docker ps -a --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" || true
   exit 1
 fi
+
+echo "=== Container $CID details ==="
+docker inspect "$CID" | jq '.[0].State, .[0].NetworkSettings, .[0].HostConfig' || true
 
 STATUS=$(docker inspect --format='{{.State.Status}}' "$CID" || true)
-echo "Container $CID status: $STATUS"
+echo "Container status: $STATUS"
+
 if [ "$STATUS" != "running" ]; then
-  echo "Container not running — printing last 1000 lines of logs"
-  docker logs --tail 1000 "$CID" || true
-  echo "=== Inspect state ==="
-  docker inspect "$CID" --format '{{json .State}}' || true
+  echo "\n=== Last 200 lines of logs ==="
+  docker logs --tail 200 "$CID" 2>&1 || true
+  
+  echo "\n=== Error logs ==="
+  docker logs "$CID" 2>&1 | grep -i error | tail -n 50 || true
+  
+  echo "\n=== Full container inspection ==="
+  docker inspect "$CID" || true
+  
+  echo "\n=== Checking container processes ==="
+  docker top "$CID" || true
+  
   exit 1
 fi
 
-echo "Container appears to be running: $CID"
+echo "\n=== Application logs (last 50 lines) ==="
+docker logs --tail 50 "$CID" 2>&1 || true
+
+echo "\n=== Checking application health ==="
+HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$CID" 2>/dev/null || echo "healthcheck not configured")
+echo "Health status: $HEALTH"
+
+# Additional debug: Check if port is accessible
+echo "\n=== Checking port accessibility ==="
+PORT_CHECK=$(docker exec "$CID" /bin/sh -c "nc -z localhost 8080 && echo 'Port 8080 is open' || echo 'Port 8080 is not accessible'" 2>&1 || true)
+echo "$PORT_CHECK"
+
+echo "\n=== Checking Java process ==="
+JAVA_PROCESS=$(docker exec "$CID" /bin/sh -c 'ps aux | grep [j]ava || echo "No Java process found"' 2>&1 || true)
+echo "$JAVA_PROCESS"
+
+echo "\n=== Checking listening ports ==="
+docker exec "$CID" /bin/sh -c 'netstat -tuln 2>/dev/null || ss -tuln 2>/dev/null || echo "Could not check listening ports"' || true
+
+echo "\nContainer $CID appears to be running"
 '''
       }
     }
