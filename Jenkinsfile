@@ -58,20 +58,27 @@ pipeline {
             // Wait for the application to start
             sleep 10
 
-            // Verify the container is running
-            def status = sh(script: "docker-compose -f ${COMPOSE_FILE} ps --services --filter 'status=running'", returnStdout: true).trim()
-            if (!status.contains(SERVICE_NAME)) {
-              error "${SERVICE_NAME} failed to start"
+            // Wait a bit longer for the application to start
+            sleep 30
+            
+            // Get container logs for debugging
+            def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+            if (!containerId) {
+              error "${SERVICE_NAME} container is not running"
             }
-
-            // Check application health
+            
+            // Show container logs
+            echo '=== Container Logs ==='
+            sh "docker logs ${containerId} --tail 100 || true"
+            
+            // Check application health (using container's internal network)
             def healthCheck = sh(
-              script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health",
-              returnStdout: true
-            ).trim()
-
-            if (healthCheck != '200') {
-              error "Health check failed with status: ${healthCheck}"
+              script: "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health",
+              returnStatus: true
+            )
+            
+            if (healthCheck != 0) {
+              error "Health check failed. Application did not start properly."
             }
 
             echo "Deployment successful! Application is running on http://localhost:${APP_PORT}"
@@ -92,8 +99,21 @@ pipeline {
 
   post {
     always {
-      // Clean up workspace
-      cleanWs()
+      script {
+        // Save container logs before cleanup
+        try {
+          def containerId = sh(script: "docker ps -aq --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+          if (containerId) {
+            echo '=== Final Container Logs ==='
+            sh "docker logs ${containerId} --tail 500 || true"
+            sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
+          }
+        } catch (Exception e) {
+          echo "Error during cleanup: ${e.message}"
+        }
+        // Clean up workspace
+        cleanWs()
+      }
     }
   }
 }
