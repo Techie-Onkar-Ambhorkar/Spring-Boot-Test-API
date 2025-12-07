@@ -11,6 +11,10 @@ pipeline {
         GIT_URL = "https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git"
         GIT_BRANCH = "master"
         ACTIVE_PROFILE = ""
+        // Add these new variables
+        OLD_CONTAINER = ""
+        NEW_CONTAINER = ""
+        DEPLOYMENT_SUCCESS = "false"
     }
 
     stages {
@@ -43,10 +47,13 @@ pipeline {
         stage('Cleanup Before Build') {
             steps {
                 script {
+                    // Get current running container if any
+                    OLD_CONTAINER = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+
                     sh """
-                        echo "=== Cleaning up Docker resources ==="
-                        docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true
-                        docker rm -f ${SERVICE_NAME} || true
+                        echo "=== Cleaning up old deployments ==="
+                        docker-compose -f ${COMPOSE_FILE} stop || true
+                        docker-compose -f ${COMPOSE_FILE} rm -f || true
                         docker system prune -f || true
                         docker volume prune -f || true
                     """
@@ -74,29 +81,34 @@ pipeline {
         stage('Build and Deploy Docker') {
             steps {
                 script {
+                    // Create necessary directories
                     sh """
                         mkdir -p logs heapdumps
                         chmod -R 777 logs/ heapdumps/ || true
                     """
 
+                    // Build the new Docker image
                     def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
                     sh "docker-compose -f ${COMPOSE_FILE} build ${buildArgs}"
 
+                    // Start the new container
                     sh """
                         docker-compose -f ${COMPOSE_FILE} up -d
                         sleep 10
                     """
 
-                    def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
-                    if (!containerId) {
-                        sh "docker logs ${SERVICE_NAME} || true"
-                        error "Container ${SERVICE_NAME} failed to start"
+                    // Get new container ID
+                    NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
+                    if (!NEW_CONTAINER) {
+                        error "New container failed to start"
                     }
 
-                    sh "docker logs ${SERVICE_NAME}"
+                    // Check container logs
+                    sh "docker logs ${NEW_CONTAINER}"
 
+                    // Health check
                     def healthCheck = sh(
-                        script: "docker exec ${SERVICE_NAME} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
+                        script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
                         returnStdout: true
                     ).trim()
 
@@ -104,8 +116,16 @@ pipeline {
                         error "Health check failed with status: ${healthCheck}"
                     }
 
-                    echo "Container ${SERVICE_NAME} is running and healthy"
-                    echo "Application is available at: http://localhost:${APP_PORT}"
+                    // Mark deployment as successful
+                    DEPLOYMENT_SUCCESS = "true"
+                    echo "Deployment successful! New container ID: ${NEW_CONTAINER}"
+
+                    // Clean up old container if it exists and new deployment is successful
+                    if (OLD_CONTAINER?.trim()) {
+                        echo "Cleaning up old container: ${OLD_CONTAINER}"
+                        sh "docker stop ${OLD_CONTAINER} || true"
+                        sh "docker rm -f ${OLD_CONTAINER} || true"
+                    }
                 }
             }
         }
@@ -116,8 +136,28 @@ pipeline {
             script {
                 echo "=== Final Container Status ==="
                 sh "docker ps -a | grep ${SERVICE_NAME} || true"
-                echo "=== Container Logs ==="
-                sh "docker logs ${SERVICE_NAME} || true"
+
+                if (DEPLOYMENT_SUCCESS != "true") {
+                    echo "=== Deployment Failed - Rolling Back ==="
+                    // Stop and remove the failed new container
+                    if (NEW_CONTAINER?.trim()) {
+                        sh "docker stop ${NEW_CONTAINER} || true"
+                        sh "docker rm -f ${NEW_CONTAINER} || true"
+                    }
+
+                    // Restart the old container if it existed
+                    if (OLD_CONTAINER?.trim()) {
+                        echo "Restoring previous container: ${OLD_CONTAINER}"
+                        sh "docker start ${OLD_CONTAINER} || true"
+                    }
+
+                    // Final status after rollback
+                    echo "=== Status After Rollback ==="
+                    sh "docker ps -a | grep ${SERVICE_NAME} || true"
+                }
+
+                // Clean up unused images
+                sh "docker image prune -f || true"
             }
         }
     }
