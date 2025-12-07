@@ -8,8 +8,8 @@ pipeline {
   environment {
     DOCKER_IMAGE = "spring-boot-test-api:latest"
     SERVICE_NAME = "spring-boot-test-api"
-    COMPOSE_FILE = "domains/pune/docker-compose.yml"
-    COMPOSE_PROJECT = "pune"
+    COMPOSE_FILE = "domains/learnings/docker-compose.yml"
+    COMPOSE_PROJECT = "learnings"
     APP_PORT = "8080"
     HEALTH_TIMEOUT = "120"
   }
