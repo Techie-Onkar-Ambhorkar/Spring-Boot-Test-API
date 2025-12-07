@@ -1,5 +1,10 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'maven:3.8.4-jdk-17'
+            args '-v $HOME/.m2:/root/.m2'  // Cache Maven dependencies
+        }
+    }
 
     environment {
         DOCKER_IMAGE = "spring-boot-test-api"
@@ -15,6 +20,7 @@ pipeline {
 
     stages {
         stage('Cleanup Before Build') {
+            agent any  // Run on any agent for cleanup
             steps {
                 script {
                     sh '''
@@ -27,6 +33,7 @@ pipeline {
         }
 
         stage('Checkout Code') {
+            agent any  // Run on any agent for checkout
             steps {
                 checkout([
                     $class: 'GitSCM',
@@ -40,14 +47,14 @@ pipeline {
         }
 
         stage('Build with Maven') {
+            // Uses the Maven container defined at the top
             steps {
-                script {
-                    sh "mvn clean package -DskipTests"
-                }
+                sh "mvn clean package -DskipTests"
             }
         }
 
         stage('Build and Deploy Docker') {
+            agent any  // Run on any agent with Docker
             steps {
                 script {
                     // Create necessary directories
@@ -88,6 +95,7 @@ pipeline {
 
     post {
         always {
+            agent any  // Run on any agent for cleanup
             script {
                 // Clean up Docker resources
                 sh "docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true"
