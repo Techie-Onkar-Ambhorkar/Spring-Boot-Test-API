@@ -12,8 +12,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Create directory for logs
-RUN mkdir -p /app/logs
+# Create directory for logs with correct permissions
+RUN mkdir -p /app/logs && \
+    chmod 777 /app/logs
 
 # Copy JAR file into container
 COPY target/*.jar app.jar
