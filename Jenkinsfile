@@ -15,9 +15,23 @@ pipeline {
   }
 
   stages {
+    stage('Prepare Workspace') {
+      steps {
+        script {
+          // Clean up any existing containers and volumes
+          sh 'docker-compose -f docker-compose.yml down -v --remove-orphans || true'
+
+          // Remove any existing directories that might cause permission issues
+          sh 'rm -rf logs/ heapdumps/ || true'
+          sh 'mkdir -p logs heapdumps'
+          sh 'chmod -R 777 logs/ heapdumps/ || true'
+        }
+      }
+    }
+
     stage('Checkout') {
       steps {
-        git branch: 'master',
+        git branch: 'main',
             url: 'https://github.com/Techie-Onkar-Ambhorkar/Spring-Boot-Test-API.git',
             credentialsId: 'github-creds'
       }
@@ -34,13 +48,6 @@ pipeline {
         script {
           // Build the Docker image directly using shell commands
           sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-
-          // Optionally tag and push the image to a registry
-          // sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} your-registry/${DOCKER_IMAGE}:${DOCKER_TAG}"
-          // withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          //   sh 'echo \"$DOCKER_PASS\" | docker login -u \"$DOCKER_USER\" --password-stdin'
-          //   sh "docker push your-registry/${DOCKER_IMAGE}:${DOCKER_TAG}"
-          // }
         }
       }
     }
@@ -49,34 +56,28 @@ pipeline {
       steps {
         script {
           try {
-            // Stop and remove any existing containers
-            sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
-
             // Start the application
             sh "docker-compose -f ${COMPOSE_FILE} up -d --build"
 
             // Wait for the application to start
-            sleep 10
-
-            // Wait a bit longer for the application to start
             sleep 30
-            
+
             // Get container logs for debugging
             def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
             if (!containerId) {
               error "${SERVICE_NAME} container is not running"
             }
-            
+
             // Show container logs
             echo '=== Container Logs ==='
             sh "docker logs ${containerId} --tail 100 || true"
-            
+
             // Check application health (using container's internal network)
             def healthCheck = sh(
               script: "docker exec ${containerId} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health",
               returnStatus: true
             )
-            
+
             if (healthCheck != 0) {
               error "Health check failed. Application did not start properly."
             }
@@ -87,7 +88,7 @@ pipeline {
             // Get container logs if available
             def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
             if (containerId) {
-              echo '=== Container Logs ==='
+              echo '=== Error Container Logs ==='
               sh "docker logs ${containerId} --tail 100 || true"
             }
             error "Deployment failed: ${e.message}"
@@ -106,13 +107,13 @@ pipeline {
           if (containerId) {
             echo '=== Final Container Logs ==='
             sh "docker logs ${containerId} --tail 500 || true"
-            sh "docker-compose -f ${COMPOSE_FILE} down --remove-orphans || true"
+            sh "docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true"
           }
+          // Clean up any remaining files
+          sh 'rm -rf logs/ heapdumps/ || true'
         } catch (Exception e) {
           echo "Error during cleanup: ${e.message}"
         }
-        // Clean up workspace
-        cleanWs()
       }
     }
   }
