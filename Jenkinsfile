@@ -106,20 +106,127 @@ fi
 
     stage('Deploy with Docker Compose') {
       steps {
-        sh '''#!/usr/bin/env bash
-set -euo pipefail
-COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
-
-if [ -f "${COMPOSE_ABS}" ]; then
-  echo "Bringing down any leftover resources for project ${COMPOSE_PROJECT} (ignore errors)"
-  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" down --remove-orphans || true
-
-  echo "Starting compose (recreate)"
-  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" up -d --force-recreate --remove-orphans
-else
-  echo "WARNING: Compose file not found, skipping Docker Compose deploy."
-fi
-'''
+        script {
+            try {
+                // Clean up any existing containers
+                sh '''#!/usr/bin/env bash
+                set -x
+                echo "=== Starting deployment with Docker Compose ==="
+                echo "Current directory: $(pwd)"
+                echo "Docker Compose file: ${WORKSPACE}/${COMPOSE_FILE}"
+                
+                # List all files in the workspace
+                echo "=== Workspace contents ==="
+                find . -type f | sort
+                
+                # Clean up any existing containers
+                echo "=== Cleaning up existing containers ==="
+                docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" down -v --remove-orphans 2>/dev/null || true
+                '''
+                
+                // Build and start the service
+                sh '''#!/usr/bin/env bash
+                set -e
+                echo "=== Building and starting services ==="
+                if ! docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" up -d --build --force-recreate; then
+                    echo "=== Docker Compose up failed, showing logs ==="
+                    docker-compose -f "${WORKSPACE}/${COMPOSE_FILE}" logs --tail=100
+                    exit 1
+                fi
+                '''
+                
+                // Get container ID
+                def containerId = sh(script: '''#!/usr/bin/env bash
+                    docker ps -q --filter "name=${SERVICE_NAME}"
+                ''', returnStdout: true).trim()
+                
+                if (!containerId) {
+                    error "No container found with name ${SERVICE_NAME}"
+                }
+                
+                echo "=== Container ${containerId} details ==="
+                sh "docker inspect ${containerId}"
+                
+                // Wait for container to be running
+                echo "=== Waiting for container to be healthy ==="
+                def maxRetries = 30
+                def retryCount = 0
+                def isHealthy = false
+                
+                while (retryCount < maxRetries) {
+                    def status = sh(script: """#!/usr/bin/env bash
+                        docker inspect -f '{{.State.Status}}' ${containerId} 2>/dev/null || echo "unknown"
+                    """, returnStdout: true).trim()
+                    
+                    echo "Container status: ${status}"
+                    
+                    if (status == "running") {
+                        // Check health status if healthcheck is configured
+                        def health = sh(script: """#!/usr/bin/env bash
+                            docker inspect -f '{{.State.Health.Status}}' ${containerId} 2>/dev/null || echo "no-healthcheck"
+                        """, returnStdout: true).trim()
+                        
+                        if (health == "healthy" || health == "no-healthcheck") {
+                            isHealthy = true
+                            break
+                        }
+                        echo "Container is running but not yet healthy (${health})"
+                    }
+                    
+                    retryCount++
+                    if (retryCount >= maxRetries) {
+                        break
+                    }
+                    
+                    sleep(2)
+                }
+                
+                if (!isHealthy) {
+                    echo "=== Container failed to become healthy ==="
+                    echo "=== Container logs ==="
+                    sh "docker logs --tail 200 ${containerId} || true"
+                    echo "=== Container inspect ==="
+                    sh "docker inspect ${containerId} || true"
+                    error "Container failed to become healthy after ${maxRetries} retries"
+                }
+                
+                // Check application logs
+                echo "=== Application logs (last 50 lines) ==="
+                sh "docker logs --tail 50 ${containerId} || true"
+                
+                // Check if application is responding
+                echo "=== Checking application health ==="
+                def healthCheck = sh(script: """#!/usr/bin/env bash
+                    curl -f http://localhost:8050/actuator/health || (echo "Health check failed" && exit 1)
+                """, returnStatus: true)
+                
+                if (healthCheck != 0) {
+                    echo "=== Health check failed ==="
+                    echo "=== Full container logs ==="
+                    sh "docker logs ${containerId} || true"
+                    echo "=== Checking container processes ==="
+                    sh "docker top ${containerId} || true"
+                    error "Application health check failed"
+                }
+                
+                echo "=== Deployment successful ==="
+                
+            } catch (Exception e) {
+                echo "=== Deployment failed: ${e.message} ==="
+                // Try to get container logs even if the main deployment failed
+                sh '''#!/usr/bin/env bash
+                echo "=== Attempting to get container logs ==="
+                CID=$(docker ps -a --filter "name=${SERVICE_NAME}" --format '{{.ID}}' | head -1) || true
+                if [ -n "$CID" ]; then
+                    echo "=== Container logs ==="
+                    docker logs --tail 200 "$CID" 2>/dev/null || true
+                    echo "=== Container inspect ==="
+                    docker inspect "$CID" 2>/dev/null || true
+                fi
+                '''
+                throw e
+            }
+        }
       }
     }
 
