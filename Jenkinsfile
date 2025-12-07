@@ -12,7 +12,6 @@ pipeline {
     COMPOSE_PROJECT = "learnings"
     APP_PORT = "8080"
     HEALTH_TIMEOUT = "120"
-    WORKSPACE_PATH = "${env.WORKSPACE}"
   }
 
   stages {
@@ -51,10 +50,10 @@ if [ ! -f "${COMPOSE_ABS}" ]; then
 fi
 
 echo "=== Compose config (expanded) ==="
-docker compose -p ${COMPOSE_PROJECT} -f "${COMPOSE_ABS}" config || true
+docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" config || true
 
 echo "=== Images (recent) ==="
-docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}" | head -n 50 || true
+docker images | head -n 50 || true
 '''
       }
     }
@@ -79,21 +78,16 @@ docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.Size}}" | h
 
     stage('Build Docker Image') {
       steps {
-        script {
-          // Capture full build output and fail if build fails
-          sh '''#!/usr/bin/env bash
+        sh '''#!/usr/bin/env bash
 set -euo pipefail
 echo "=== Docker build start ==="
-docker build -t ${DOCKER_IMAGE} . 2>&1 | tee docker-build.log
-BUILD_EXIT=${PIPESTATUS[0]:-0}
-if [ "$BUILD_EXIT" -ne 0 ]; then
-  echo "ERROR: docker build failed (exit $BUILD_EXIT). Last 200 lines of build log:"
+if ! docker build -t "${DOCKER_IMAGE}" . 2>&1 | tee docker-build.log; then
+  echo "ERROR: docker build failed. Last 200 lines of build log:"
   tail -n 200 docker-build.log || true
-  exit $BUILD_EXIT
+  exit 1
 fi
 echo "=== Docker build completed ==="
 '''
-        }
       }
     }
 
@@ -115,28 +109,24 @@ fi
 
     stage('Deploy with Docker Compose') {
       steps {
-        script {
-          sh '''#!/usr/bin/env bash
+        sh '''#!/usr/bin/env bash
 set -euo pipefail
 COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
 
 echo "Bringing down any leftover resources for project ${COMPOSE_PROJECT} (ignore errors)"
-docker compose -p ${COMPOSE_PROJECT} -f "${COMPOSE_ABS}" down --remove-orphans || true
+docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" down --remove-orphans || true
 
-echo "Starting compose (rebuild disabled here because image already built)"
-docker compose -p ${COMPOSE_PROJECT} -f "${COMPOSE_ABS}" up -d --force-recreate --remove-orphans
+echo "Starting compose (recreate)"
+docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" up -d --force-recreate --remove-orphans
 '''
-        }
       }
     }
 
     stage('Post-deploy quick check') {
       steps {
-        script {
-          sh '''#!/usr/bin/env bash
+        sh '''#!/usr/bin/env bash
 set -euo pipefail
 NAME="${SERVICE_NAME}"
-COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
 
 echo "=== Containers matching ${NAME} ==="
 docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}" || true
@@ -146,3 +136,113 @@ if [ -z "$CID" ]; then
   echo "No container found for ${NAME} after compose up"
   echo "=== All containers (recent) ==="
   docker ps -a --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" | head -n 200 || true
+  exit 1
+fi
+
+STATUS=$(docker inspect --format='{{.State.Status}}' "$CID" || true)
+echo "Container $CID status: $STATUS"
+if [ "$STATUS" != "running" ]; then
+  echo "Container not running — printing last 1000 lines of logs"
+  docker logs --tail 1000 "$CID" || true
+  echo "=== Inspect state ==="
+  docker inspect "$CID" --format '{{json .State}}' || true
+  exit 1
+fi
+
+echo "Container appears to be running: $CID"
+'''
+      }
+    }
+
+    stage('Verify deployment (health or HTTP probe)') {
+      steps {
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+NAME="${SERVICE_NAME}"
+TIMEOUT=${HEALTH_TIMEOUT}
+START=$(date +%s)
+CID=$(docker ps --filter "name=^/${NAME}$" --format '{{.ID}}' || true)
+
+if [ -z "$CID" ]; then
+  echo "ERROR: container ${NAME} not found for health check"
+  exit 1
+fi
+
+echo "Waiting for container $NAME ($CID) to become healthy (timeout ${TIMEOUT}s)..."
+while true; do
+  HEALTH=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$CID" || true)
+  if [ -n "$HEALTH" ]; then
+    echo "Health status: $HEALTH"
+    if [ "$HEALTH" = "healthy" ]; then
+      echo "Container is healthy"
+      break
+    fi
+  else
+    echo "No healthcheck defined; probing http://localhost:${APP_PORT}/actuator/health (or /)"
+    if curl -fsS "http://localhost:${APP_PORT}/actuator/health" >/dev/null 2>&1 || curl -fsS "http://localhost:${APP_PORT}/" >/dev/null 2>&1; then
+      echo "HTTP probe succeeded"
+      break
+    fi
+  fi
+
+  NOW=$(date +%s)
+  ELAPSED=$((NOW - START))
+  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+    echo "Timed out waiting for healthy container"
+    echo "=== Container status ==="
+    docker ps -a --filter "name=^/${NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}"
+    echo "=== Recent logs (tail 1000) ==="
+    docker logs --tail 1000 "$CID" || true
+    docker inspect "$CID" --format '{{json .State}}' || true
+    exit 1
+  fi
+  sleep 3
+done
+'''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Build, Test, and Docker Compose deployment completed successfully!"
+    }
+    failure {
+      script {
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+echo "Pipeline failed — printing docker info, images, compose config, and recent logs for ${SERVICE_NAME}"
+
+docker version || true
+docker info || true
+
+echo "=== Images (top 50) ==="
+docker images | head -n 50 || true
+
+COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
+if [ -f "${COMPOSE_ABS}" ]; then
+  echo "=== Compose config ==="
+  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" config || true
+fi
+
+echo "=== Container list for ${SERVICE_NAME} ==="
+docker ps -a --filter "name=^/${SERVICE_NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" || true
+
+ID=$(docker ps -a --filter "name=^/${SERVICE_NAME}$" --format '{{.ID}}' || true)
+if [ -n "$ID" ]; then
+  echo "=== Logs for $ID ==="
+  docker logs --tail 2000 "$ID" || true
+  echo "=== Inspect state ==="
+  docker inspect "$ID" --format '{{json .State}}' || true
+fi
+
+echo "=== Last lines of docker-build.log (if present) ==="
+if [ -f docker-build.log ]; then
+  tail -n 500 docker-build.log || true
+fi
+'''
+      }
+      echo "❌ Pipeline failed. Check logs for details."
+    }
+  }
+}
