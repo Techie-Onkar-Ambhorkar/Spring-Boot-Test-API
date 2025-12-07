@@ -6,7 +6,7 @@ pipeline {
   }
 
   environment {
-    DOCKER_IMAGE   = "spring-boot-test-api:latest"
+    DOCKER_IMAGE   = "spring-boot-test-api-app:latest"
     SERVICE_NAME   = "spring-boot-test-api"
     COMPOSE_FILE   = "domains/learnings/docker-compose.yml"
     COMPOSE_PROJECT= "learnings"
