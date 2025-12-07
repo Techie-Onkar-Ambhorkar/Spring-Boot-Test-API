@@ -1,4 +1,10 @@
-# Use Eclipse Temurin JRE 17 (smaller than JDK)
+# Build stage
+FROM maven:3.8.4-jdk-17 AS build
+WORKDIR /app
+COPY . .
+RUN mvn clean package -DskipTests
+
+# Runtime stage
 FROM eclipse-temurin:17-jre-jammy
 
 # Set working directory
@@ -8,8 +14,8 @@ WORKDIR /app
 RUN mkdir -p /app/logs && \
     chmod 777 /app/logs
 
-# Copy JAR file into container
-COPY target/*.jar app.jar
+# Copy the JAR file from the build stage
+COPY --from=build /app/target/Spring-Boot-Test-API-*.jar app.jar
 
 # Expose the application port
 EXPOSE 8080
