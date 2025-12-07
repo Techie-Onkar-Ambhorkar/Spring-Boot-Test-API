@@ -14,6 +14,28 @@ pipeline {
     }
 
     stages {
+        stage('Check Prerequisites') {
+            steps {
+                script {
+                    // Check if Maven is available
+                    def mvnInstalled = sh(script: 'command -v mvn || echo "not_found"', returnStdout: true).trim()
+                    if (mvnInstalled == 'not_found') {
+                        error "Maven is not installed on this agent. Please install Maven or use an agent with Maven pre-installed."
+                    }
+
+                    // Check if Docker is available
+                    def dockerInstalled = sh(script: 'command -v docker || echo "not_found"', returnStdout: true).trim()
+                    if (dockerInstalled == 'not_found') {
+                        error "Docker is not installed on this agent. Please install Docker or use an agent with Docker pre-installed."
+                    }
+
+                    // Print versions
+                    sh 'mvn -v'
+                    sh 'docker --version'
+                }
+            }
+        }
+
         stage('Cleanup Before Build') {
             steps {
                 script {
@@ -39,21 +61,6 @@ pipeline {
             }
         }
 
-        stage('Install Maven') {
-            steps {
-                script {
-                    // Install Maven if not already installed
-                    sh '''
-                        if ! command -v mvn &> /dev/null; then
-                            echo "Maven not found, installing..."
-                            apt-get update && apt-get install -y maven
-                        fi
-                        mvn -v
-                    '''
-                }
-            }
-        }
-
         stage('Build with Maven') {
             steps {
                 sh "mvn clean package -DskipTests"
@@ -67,20 +74,6 @@ pipeline {
                     sh 'mkdir -p logs heapdumps'
                     sh 'chmod -R 777 logs/ heapdumps/ || true'
 
-                    // Install Docker if not already installed
-                    sh '''
-                        if ! command -v docker &> /dev/null; then
-                            echo "Docker not found, installing..."
-                            apt-get update
-                            apt-get install -y apt-transport-https ca-certificates curl software-properties-common
-                            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-                            add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-                            apt-get update
-                            apt-get install -y docker-ce docker-ce-cli containerd.io
-                        fi
-                        docker --version
-                    '''
-
                     // Build with the active profile if set
                     def buildArgs = env.ACTIVE_PROFILE?.trim() ? "--build-arg ACTIVE_PROFILE=${env.ACTIVE_PROFILE}" : ""
 
@@ -92,7 +85,7 @@ pipeline {
                     sleep 30
 
                     // Verify container is running
-                    def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStatus: true, returnStdout: true).trim()
+                    def containerId = sh(script: "docker ps -q --filter 'name=${SERVICE_NAME}'", returnStdout: true).trim()
                     if (!containerId) {
                         error "${SERVICE_NAME} container is not running"
                     }
