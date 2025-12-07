@@ -5,7 +5,7 @@ services:
     build:
       context: .
       args:
-        - ACTIVE_PROFILE=${ACTIVE_PROFILE:-prod}
+        - ACTIVE_PROFILE=${ACTIVE_PROFILE:-}
     image: spring-boot-test-api:latest
     container_name: spring-boot-test-api-app
     ports:
