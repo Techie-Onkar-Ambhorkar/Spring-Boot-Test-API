@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "spring-boot-test-api"
         DOCKER_TAG = "latest"
-        SERVICE_NAME = "spring-boot-test-api"
+        SERVICE_NAME = "spring-boot-test-api"  // Make sure this matches your docker-compose service name
         COMPOSE_FILE = "docker-compose.yml"
         COMPOSE_PROJECT = "spring-boot-test"
         APP_PORT = "8080"
@@ -32,6 +32,7 @@ pipeline {
                     // Print versions
                     sh 'mvn -v'
                     sh 'docker --version'
+                    sh 'docker-compose --version'
                 }
             }
         }
@@ -40,7 +41,13 @@ pipeline {
             steps {
                 script {
                     sh '''
+                        # Stop and remove any existing containers and networks
                         docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true
+
+                        # Force remove any container with the same name
+                        docker rm -f ${SERVICE_NAME} || true
+
+                        # Clean up unused resources
                         docker system prune -f || true
                         docker volume prune -f || true
                     '''
@@ -110,9 +117,12 @@ pipeline {
         always {
             script {
                 // Clean up Docker resources
-                sh "docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true"
-                sh 'docker system prune -f || true'
-                sh 'docker volume prune -f || true'
+                sh """
+                    docker-compose -f ${COMPOSE_FILE} down -v --remove-orphans || true
+                    docker rm -f ${SERVICE_NAME} || true
+                    docker system prune -f || true
+                    docker volume prune -f || true
+                """
             }
         }
     }
