@@ -8,7 +8,7 @@ pipeline {
   environment {
     DOCKER_IMAGE   = "spring-boot-test-api:latest"
     SERVICE_NAME   = "spring-boot-test-api"
-    COMPOSE_FILE   = "docker-compose.yml"
+    COMPOSE_FILE   = "domains/learnings/docker-compose.yml"
     COMPOSE_PROJECT= "learnings"
     APP_PORT       = "8080"
     HEALTH_TIMEOUT = "120"
@@ -123,6 +123,21 @@ fi
       }
     }
 
+    stage('Debug container logs') {
+      steps {
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+CID=$(docker ps -a --filter "name=^/${SERVICE_NAME}$" --format '{{.ID}}' || true)
+if [ -n "$CID" ]; then
+  echo "=== Initial logs for $CID ==="
+  docker logs --tail 200 "$CID" || true
+else
+  echo "No container found for ${SERVICE_NAME}"
+fi
+'''
+      }
+    }
+
     stage('Post-deploy quick check') {
       steps {
         sh '''#!/usr/bin/env bash
@@ -230,20 +245,3 @@ echo "=== Container list for ${SERVICE_NAME} ==="
 docker ps -a --filter "name=^/${SERVICE_NAME}$" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Image}}" || true
 
 ID=$(docker ps -a --filter "name=^/${SERVICE_NAME}$" --format '{{.ID}}' || true)
-if [ -n "$ID" ]; then
-  echo "=== Logs for $ID ==="
-  docker logs --tail 2000 "$ID" || true
-  echo "=== Inspect state ==="
-  docker inspect "$ID" --format '{{json .State}}' || true
-fi
-
-echo "=== Last lines of docker-build.log (if present) ==="
-if [ -f docker-build.log ]; then
-  tail -n 500 docker-build.log || true
-fi
-'''
-      }
-      echo "❌ Pipeline failed. Check logs for details."
-    }
-  }
-}
