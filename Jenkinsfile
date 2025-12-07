@@ -41,7 +41,7 @@ pipeline {
 
         stage('Build with Maven') {
             agent {
-                label 'maven'  // Make sure you have a node with Maven installed and labeled 'maven'
+                label 'Maven'  // Make sure you have a node with Maven installed and labeled 'maven'
             }
             steps {
                 sh "mvn clean package -DskipTests"
