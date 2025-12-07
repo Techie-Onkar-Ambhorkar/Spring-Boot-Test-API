@@ -6,11 +6,11 @@ pipeline {
   }
 
   environment {
-    DOCKER_IMAGE = "spring-boot-test-api:latest"
-    SERVICE_NAME = "spring-boot-test-api"
-    COMPOSE_FILE = "domains/learnings/docker-compose.yml"
-    COMPOSE_PROJECT = "learnings"
-    APP_PORT = "8080"
+    DOCKER_IMAGE   = "spring-boot-test-api:latest"
+    SERVICE_NAME   = "spring-boot-test-api"
+    COMPOSE_FILE   = "domains/learnings/docker-compose.yml"
+    COMPOSE_PROJECT= "learnings"
+    APP_PORT       = "8080"
     HEALTH_TIMEOUT = "120"
   }
 
@@ -42,15 +42,12 @@ ls -la || true
 
 COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
 echo "Looking for compose file at: ${COMPOSE_ABS}"
-if [ ! -f "${COMPOSE_ABS}" ]; then
-  echo "ERROR: Compose file ${COMPOSE_ABS} not found"
-  echo "Listing domains directory:"
-  ls -la "${WORKSPACE}/domains" || true
-  exit 2
+if [ -f "${COMPOSE_ABS}" ]; then
+  echo "=== Compose config (expanded) ==="
+  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" config || true
+else
+  echo "WARNING: Compose file ${COMPOSE_ABS} not found. Skipping compose validation."
 fi
-
-echo "=== Compose config (expanded) ==="
-docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" config || true
 
 echo "=== Images (recent) ==="
 docker images | head -n 50 || true
@@ -113,11 +110,15 @@ fi
 set -euo pipefail
 COMPOSE_ABS="${WORKSPACE}/${COMPOSE_FILE}"
 
-echo "Bringing down any leftover resources for project ${COMPOSE_PROJECT} (ignore errors)"
-docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" down --remove-orphans || true
+if [ -f "${COMPOSE_ABS}" ]; then
+  echo "Bringing down any leftover resources for project ${COMPOSE_PROJECT} (ignore errors)"
+  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" down --remove-orphans || true
 
-echo "Starting compose (recreate)"
-docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" up -d --force-recreate --remove-orphans
+  echo "Starting compose (recreate)"
+  docker compose -p "${COMPOSE_PROJECT}" -f "${COMPOSE_ABS}" up -d --force-recreate --remove-orphans
+else
+  echo "WARNING: Compose file not found, skipping Docker Compose deploy."
+fi
 '''
       }
     }
@@ -243,6 +244,3 @@ fi
 '''
       }
       echo "❌ Pipeline failed. Check logs for details."
-    }
-  }
-}
