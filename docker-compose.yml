@@ -1,8 +1,8 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
+  spring-boot-test-api:
+    image: spring-boot-test-api:latest
     container_name: spring-boot-test-api
     ports:
       - "8050:8080"
