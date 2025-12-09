@@ -112,23 +112,24 @@ pipeline {
                             """
 
                             // Get new container ID - simplified approach
-                            def newContainerId = ""
-                            try {
-                                // First try with simple name match
-                                newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
-                                
-                                // If not found, try with a more permissive pattern
-                                if (!newContainerId) {
-                                    newContainerId = sh(script: "docker ps -a -q --filter name=.*${SERVICE_NAME}.*", returnStdout: true).trim()
-                                }
-                                
-                                if (!newContainerId) {
-                                    error "New container failed to start - could not find container with name ${SERVICE_NAME}"
-                                }
+                            def newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
+                            
+                            // If not found, try with a more permissive pattern
+                            if (!newContainerId) {
+                                newContainerId = sh(script: "docker ps -a -q --filter name=.*${SERVICE_NAME}.*", returnStdout: true).trim()
+                            }
+                            
+                            if (newContainerId) {
+                                // Set the environment variable for later use
+                                env.NEW_CONTAINER = newContainerId
                                 
                                 // Verify we can get container info
                                 def containerName = sh(script: "docker inspect --format='{{.Name}}' ${newContainerId}", returnStdout: true).trim()
                                 echo "Found container: ${containerName} (ID: ${newContainerId})"
+                                echo "New container started with ID: ${env.NEW_CONTAINER}"
+                            } else {
+                                error "New container failed to start - could not find container with name ${SERVICE_NAME}"
+                            }
                                 
                                 // Set the global NEW_CONTAINER variable
                                 env.NEW_CONTAINER = newContainerId
