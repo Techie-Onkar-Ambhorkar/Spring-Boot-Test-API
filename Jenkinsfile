@@ -112,7 +112,7 @@ pipeline {
                             """
 
                             // Get new container ID - use the actual container name without the project prefix
-                            NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=^/${SERVICE_NAME}$'", returnStdout: true).trim()
+                            NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=^/\\${SERVICE_NAME}\\$'", returnStddown: true).trim()
                             if (!NEW_CONTAINER) {
                                 error "New container failed to start"
                             }
