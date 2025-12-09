@@ -10,7 +10,7 @@ public class ApiController {
 
   @GetMapping("/")
   public String index() {
-    return "Hello Onkyarity Updated Again Once Successfully !!";
+    return "Hello Onkyarity Updated Again Once Successfully Today !!";
   }
 
 }
