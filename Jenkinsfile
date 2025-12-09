@@ -126,30 +126,21 @@ pipeline {
                                 // Verify we can get container info
                                 def containerName = sh(script: "docker inspect --format='{{.Name}}' ${newContainerId}", returnStdout: true).trim()
                                 echo "Found container: ${containerName} (ID: ${newContainerId})"
-                                echo "New container started with ID: ${env.NEW_CONTAINER}"
+                                echo "New container started with ID: ${newContainerId}"
+                                
+                                // Check container logs
+                                def logs = sh(script: "docker logs ${newContainerId} || true", returnStdout: true).trim()
+                                echo "=== Container Logs ===\n${logs}\n====================="
+                                
+                                // Verify the container is actually running
+                                def isContainerRunning = sh(script: "docker inspect -f '{{.State.Running}}' ${newContainerId} || echo 'false'", returnStdout: true).trim()
+                                if (isContainerRunning != 'true') {
+                                    error "Container ${newContainerId} is not in running state"
+                                }
                             } else {
-                                error "New container failed to start - could not find container with name ${SERVICE_NAME}"
-                            }
-                                
-                                // Set the global NEW_CONTAINER variable
-                                env.NEW_CONTAINER = newContainerId
-                                echo "New container started with ID: ${env.NEW_CONTAINER}"
-                                
-                            } catch (Exception e) {
-                                echo "Error getting container info: ${e.message}"
                                 // List all containers for debugging
                                 sh "docker ps -a"
-                                error "Failed to verify container status: ${e.message}"
-                            }
-                            
-                            // Check container logs
-                            def logs = sh(script: "docker logs ${env.NEW_CONTAINER} || true", returnStdout: true).trim()
-                            echo "=== Container Logs ===\n${logs}\n====================="
-                            
-                            // Verify the container is actually running
-                            def isContainerRunning = sh(script: "docker inspect -f '{{.State.Running}}' ${env.NEW_CONTAINER} || echo 'false'", returnStdout: true).trim()
-                            if (isContainerRunning != 'true') {
-                                error "Container ${env.NEW_CONTAINER} is not in running state"
+                                error "New container failed to start - could not find container with name ${SERVICE_NAME}"
                             }
 
                             // Health check with retries
