@@ -111,23 +111,40 @@ pipeline {
                                 sleep 10
                             """
 
-                            // Get new container ID - simplified approach
-                            def newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
-                            if (!newContainerId) {
-                                // Try alternative approach if first attempt fails
-                                newContainerId = sh(script: 'docker ps -q --filter name=' + SERVICE_NAME, returnStdout: true).trim()
+                            // Get new container ID - simplified approach with better error handling
+                            def newContainerId = ""
+                            try {
+                                // First try with exact name match
+                                newContainerId = sh(script: "docker ps -q --filter name=^/${SERVICE_NAME}$", returnStdout: true).trim()
+                                
+                                // If not found, try without the leading slash
+                                if (!newContainerId) {
+                                    newContainerId = sh(script: "docker ps -q --filter name=^${SERVICE_NAME}$", returnStdout: true).trim()
+                                }
+                                
+                                // If still not found, try with just the name
+                                if (!newContainerId) {
+                                    newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
+                                }
+                                
                                 if (!newContainerId) {
                                     error "New container failed to start - could not find container with name ${SERVICE_NAME}"
                                 }
+                                
+                                // Verify we can get container info
+                                def containerName = sh(script: "docker inspect --format='{{.Name}}' ${newContainerId}", returnStdout: true).trim()
+                                echo "Found container: ${containerName} (ID: ${newContainerId})"
+                                
+                                // Set the global NEW_CONTAINER variable
+                                env.NEW_CONTAINER = newContainerId
+                                echo "New container started with ID: ${env.NEW_CONTAINER}"
+                                
+                            } catch (Exception e) {
+                                echo "Error getting container info: ${e.message}"
+                                // List all containers for debugging
+                                sh "docker ps -a"
+                                error "Failed to verify container status: ${e.message}"
                             }
-                            
-                            // Get the full container name for verification
-                            def containerName = sh(script: "docker inspect --format='{{.Name}}' ${newContainerId}", returnStdout: true).trim()
-                            echo "Found container: ${containerName} (ID: ${newContainerId})"
-                            
-                            // Set the global NEW_CONTAINER variable
-                            env.NEW_CONTAINER = newContainerId
-                            echo "New container started with ID: ${env.NEW_CONTAINER}"
                             
                             // Check container logs
                             def logs = sh(script: "docker logs ${env.NEW_CONTAINER} || true", returnStdout: true).trim()
