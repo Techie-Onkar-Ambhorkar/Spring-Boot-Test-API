@@ -134,8 +134,8 @@ pipeline {
                             echo "=== Container Logs ===\n${logs}\n====================="
                             
                             // Verify the container is actually running
-                            def containerStatus = sh(script: "docker inspect -f '{{.State.Running}}' ${env.NEW_CONTAINER} || echo 'false'", returnStdout: true).trim()
-                            if (containerStatus != 'true') {
+                            def isContainerRunning = sh(script: "docker inspect -f '{{.State.Running}}' ${env.NEW_CONTAINER} || echo 'false'", returnStdout: true).trim()
+                            if (isContainerRunning != 'true') {
                                 error "Container ${env.NEW_CONTAINER} is not in running state"
                             }
 
