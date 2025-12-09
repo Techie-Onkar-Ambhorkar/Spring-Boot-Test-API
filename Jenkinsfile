@@ -117,14 +117,16 @@ pipeline {
                                 // Try different patterns to find the container
                                 def patterns = [
                                     "name=${SERVICE_NAME}",
-                                    "name='^'${SERVICE_NAME}'$'",
-                                    "name='^/.*'${SERVICE_NAME}'$'"
+                                    "name=^${SERVICE_NAME}$",
+                                    "name=^/.*${SERVICE_NAME}$"
                                 ]
                                 
                                 // Try each pattern until we find a container
                                 for (String pattern : patterns) {
                                     if (!newContainerId) {
-                                        newContainerId = sh(script: "docker ps -q --filter ${pattern}", returnStdout: true).trim()
+                                        // Escape the pattern for shell
+                                        def escapedPattern = pattern.replaceAll('\$', '\\\\$')
+                                        newContainerId = sh(script: "docker ps -q --filter '${escapedPattern}'", returnStdout: true).trim()
                                     }
                                 }
                                 
