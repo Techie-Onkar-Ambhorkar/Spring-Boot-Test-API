@@ -111,14 +111,17 @@ pipeline {
                                 sleep 10
                             """
 
-                            // Get new container ID
-                            NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=learnings:${SERVICE_NAME}'", returnStdout: true).trim()
+                            // Get new container ID - use the actual container name without the project prefix
+                            NEW_CONTAINER = sh(script: "docker ps -q --filter 'name=^/${SERVICE_NAME}$'", returnStdout: true).trim()
                             if (!NEW_CONTAINER) {
                                 error "New container failed to start"
                             }
 
+                            echo "New container started with ID: ${NEW_CONTAINER}"
+                            
                             // Check container logs
-                            sh "docker logs ${NEW_CONTAINER}"
+                            def logs = sh(script: "docker logs ${NEW_CONTAINER} || true", returnStdout: true).trim()
+                            echo "=== Container Logs ===\n${logs}\n====================="
 
                             // Health check with retries
                             def maxRetries = 5
@@ -128,7 +131,7 @@ pipeline {
                             // Try multiple times with delay
                             while (retryCount < maxRetries) {
                                 healthCheck = sh(
-                                    script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/spring-boot-test-api/actuator/health || echo '503'",
+                                    script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
                                     returnStdout: true
                                 ).trim()
                                 
