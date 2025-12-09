@@ -111,17 +111,29 @@ pipeline {
                                 sleep 10
                             """
 
-                            // Get new container ID - use the actual container name without the project prefix
-                            NEW_CONTAINER = sh(script: 'docker ps -q --filter name=^/\'${SERVICE_NAME}\'$', returnStdout: true).trim()
-                            if (!NEW_CONTAINER) {
-                                error "New container failed to start"
+                            // Get new container ID - using a simpler approach
+                            def newContainerId = sh(script: "docker ps -q --filter name=^/${SERVICE_NAME}$", returnStdout: true).trim()
+                            if (!newContainerId) {
+                                // Try an alternative approach to find the container
+                                newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
+                                if (!newContainerId) {
+                                    error "New container failed to start - could not find container with name ${SERVICE_NAME}"
+                                }
                             }
-
-                            echo "New container started with ID: ${NEW_CONTAINER}"
+                            
+                            // Set the global NEW_CONTAINER variable
+                            env.NEW_CONTAINER = newContainerId
+                            echo "New container started with ID: ${env.NEW_CONTAINER}"
                             
                             // Check container logs
-                            def logs = sh(script: "docker logs ${NEW_CONTAINER} || true", returnStdout: true).trim()
+                            def logs = sh(script: "docker logs ${env.NEW_CONTAINER} || true", returnStdout: true).trim()
                             echo "=== Container Logs ===\n${logs}\n====================="
+                            
+                            // Verify the container is actually running
+                            def containerStatus = sh(script: "docker inspect -f '{{.State.Running}}' ${env.NEW_CONTAINER} || echo 'false'", returnStdout: true).trim()
+                            if (containerStatus != 'true') {
+                                error "Container ${env.NEW_CONTAINER} is not in running state"
+                            }
 
                             // Health check with retries
                             def maxRetries = 5
