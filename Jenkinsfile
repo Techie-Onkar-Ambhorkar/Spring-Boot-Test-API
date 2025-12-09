@@ -119,7 +119,8 @@ pipeline {
                                 
                                 // If not found, try with the full container name including the leading slash
                                 if (!newContainerId) {
-                                    newContainerId = sh(script: "docker ps -a -q --filter name=^/${SERVICE_NAME}$", returnStdout: true).trim()
+                                    def escapedName = SERVICE_NAME.replaceAll('([^a-zA-Z0-9])', '\\\\$1')
+                                    newContainerId = sh(script: "docker ps -a -q --filter name=^/${escapedName}$", returnStdout: true).trim()
                                 }
                                 
                                 if (!newContainerId) {
