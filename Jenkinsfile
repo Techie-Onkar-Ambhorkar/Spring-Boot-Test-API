@@ -119,7 +119,7 @@ pipeline {
                                 
                                 // If not found, try with a more permissive pattern
                                 if (!newContainerId) {
-                                    newContainerId = sh(script: "docker ps -a -q --filter name=^/.*${SERVICE_NAME}.*\\$", returnStdout: true).trim()
+                                    newContainerId = sh(script: "docker ps -a -q --filter name=.*${SERVICE_NAME}.*", returnStdout: true).trim()
                                 }
                                 
                                 if (!newContainerId) {
