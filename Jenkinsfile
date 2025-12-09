@@ -206,31 +206,38 @@ pipeline {
     post {
         always {
             script {
-                // Change to project directory for cleanup
                 dir(env.PROJECT_DIR ?: '.') {
                     echo "=== Final Container Status ==="
                     sh "docker ps -a | grep ${SERVICE_NAME} || true"
 
-                    if (BUILD_SUCCESS == "true" && DEPLOYMENT_SUCCESS != "true") {
-                        echo "=== Deployment Failed - Rolling Back ==="
-                        // Stop and remove the failed new container
-                        if (NEW_CONTAINER?.trim()) {
-                            sh "docker stop ${NEW_CONTAINER} || true"
-                            sh "docker rm -f ${NEW_CONTAINER} || true"
-                        }
-
-                        // Restart the old container if it existed
-                        if (OLD_CONTAINER?.trim() && OLD_CONTAINER != NEW_CONTAINER) {
-                            echo "Restoring previous container: ${OLD_CONTAINER}"
-                            sh "docker start ${OLD_CONTAINER} || true"
-                        }
-                    }
-
-                    // Clean up unused images only if build was successful
                     if (BUILD_SUCCESS == "true") {
+                        if (DEPLOYMENT_SUCCESS != "true") {
+                            echo "=== Deployment Failed - Attempting Rollback ==="
+                            // Try to get current container ID if not already set
+                            def currentContainer = env.NEW_CONTAINER ?: ""
+                            
+                            // Stop and remove the failed new container if it exists
+                            if (currentContainer?.trim()) {
+                                echo "Stopping failed container: ${currentContainer}"
+                                sh "docker stop ${currentContainer} || true"
+                                sh "docker rm -f ${currentContainer} || true"
+                            } else {
+                                echo "No new container to stop"
+                            }
+
+                            // Restart the old container if it existed
+                            if (OLD_CONTAINER?.trim() && OLD_CONTAINER != currentContainer) {
+                                echo "Restoring previous container: ${OLD_CONTAINER}"
+                                sh "docker start ${OLD_CONTAINER} || true"
+                            }
+                        }
+
+                        // Clean up unused Docker resources
                         echo "=== Cleaning up unused Docker resources ==="
                         sh "docker system prune -f || true"
                         sh "docker volume prune -f || true"
+                    } else {
+                        echo "Build was not successful, skipping cleanup"
                     }
                 }
             }
