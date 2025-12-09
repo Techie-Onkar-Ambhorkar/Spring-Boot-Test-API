@@ -148,10 +148,15 @@ pipeline {
                             def retryCount = 0
                             def healthCheck = "503"
 
+                            // Make sure we have a container ID
+                            if (!newContainerId) {
+                                error "No container ID available for health check"
+                            }
+
                             // Try multiple times with delay
                             while (retryCount < maxRetries) {
                                 healthCheck = sh(
-                                    script: "docker exec ${NEW_CONTAINER} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
+                                    script: "docker exec ${newContainerId} curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo '503'",
                                     returnStdout: true
                                 ).trim()
                                 
@@ -168,13 +173,13 @@ pipeline {
 
                             if (healthCheck != "200") {
                                 // Get container logs for debugging
-                                def containerLogs = sh(script: "docker logs ${NEW_CONTAINER} || true", returnStdout: true).trim()
+                                def containerLogs = sh(script: "docker logs ${newContainerId} || true", returnStdout: true).trim()
                                 echo "=== Container Logs ==="
                                 echo containerLogs
                                 echo "====================="
                                 
                                 // Check if container is actually running
-                                def containerStatus = sh(script: "docker inspect -f '{{.State.Status}}' ${NEW_CONTAINER} || echo 'unknown'", returnStdout: true).trim()
+                                def containerStatus = sh(script: "docker inspect -f '{{.State.Status}}' ${newContainerId} || echo 'unknown'", returnStdout: true).trim()
                                 echo "Container status: ${containerStatus}"
                                 
                                 if (containerStatus == "running") {
@@ -186,10 +191,10 @@ pipeline {
                             }
 
                             // If we got here, the new container is healthy
-                            echo "New container is healthy: ${NEW_CONTAINER}"
+                            echo "New container is healthy: ${newContainerId}"
 
                             // Clean up old container if it exists and new deployment is successful
-                            if (OLD_CONTAINER?.trim() && OLD_CONTAINER != NEW_CONTAINER) {
+                            if (OLD_CONTAINER?.trim() && OLD_CONTAINER != newContainerId) {
                                 echo "Cleaning up old container: ${OLD_CONTAINER}"
                                 sh "docker stop ${OLD_CONTAINER} || true"
                                 sh "docker rm -f ${OLD_CONTAINER} || true"
