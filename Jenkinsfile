@@ -117,14 +117,14 @@ pipeline {
                                 // Try different patterns to find the container
                                 def patterns = [
                                     "name=${SERVICE_NAME}",
-                                    "name=^${SERVICE_NAME}$",
-                                    "name=^/.*${SERVICE_NAME}$"
+                                    "name='^'${SERVICE_NAME}'$'",
+                                    "name='^/.*'${SERVICE_NAME}'$'"
                                 ]
                                 
                                 // Try each pattern until we find a container
-                                for (pattern in patterns) {
+                                for (String pattern : patterns) {
                                     if (!newContainerId) {
-                                        newContainerId = sh(script: "docker ps -q --filter '${pattern}'", returnStdout: true).trim()
+                                        newContainerId = sh(script: "docker ps -q --filter ${pattern}", returnStdout: true).trim()
                                     }
                                 }
                                 
