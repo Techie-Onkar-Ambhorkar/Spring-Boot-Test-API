@@ -111,23 +111,15 @@ pipeline {
                                 sleep 10
                             """
 
-                            // Get new container ID - simplified approach with better error handling
+                            // Get new container ID - simplified approach
                             def newContainerId = ""
                             try {
-                                // Try different patterns to find the container
-                                def patterns = [
-                                    "name=${SERVICE_NAME}",
-                                    "name=^${SERVICE_NAME}$",
-                                    "name=^/.*${SERVICE_NAME}$"
-                                ]
+                                // First try with simple name match
+                                newContainerId = sh(script: "docker ps -q --filter name=${SERVICE_NAME}", returnStdout: true).trim()
                                 
-                                // Try each pattern until we find a container
-                                for (String pattern : patterns) {
-                                    if (!newContainerId) {
-                                        // Escape the pattern for shell
-                                        def escapedPattern = pattern.replaceAll('\$', '\\\\$')
-                                        newContainerId = sh(script: "docker ps -q --filter '${escapedPattern}'", returnStdout: true).trim()
-                                    }
+                                // If not found, try with the full container name including the leading slash
+                                if (!newContainerId) {
+                                    newContainerId = sh(script: "docker ps -a -q --filter name=^/${SERVICE_NAME}$", returnStdout: true).trim()
                                 }
                                 
                                 if (!newContainerId) {
